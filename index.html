@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Brand × Attribute — Forced-Choice Task</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0f1115;
+      --fg: #e9edf1;
+      --muted: #9aa3ad;
+      --accent: #58a6ff;
+      --danger: #ff6b6b;
+      --ok: #47d16c;
+      --card: #171a20;
+      --card2:#1e232b;
+    }
+    html, body { height:100%; }
+    body {
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", sans-serif;
+      color: var(--fg); background: linear-gradient(180deg, #0b0d12, #10131a);
+      display:flex; align-items:center; justify-content:center; 
+    }
+    .container { width:min(920px, 92vw); }
+    .card {
+      background: radial-gradient(1000px 500px at -20% -40%, #162032 0%, transparent 70%), var(--card);
+      border:1px solid #232a34; border-radius:16px; padding:28px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+    h1, h2 { margin: 0 0 12px; }
+    h1 { font-size: 28px; letter-spacing: .2px; }
+    h2 { font-size: 20px; color: var(--muted); font-weight: 500; }
+    p  { color: #cfd7e1; line-height: 1.55; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .field { display:flex; flex-direction:column; gap:8px; flex:1 1 260px; }
+    input[type="text"] {
+      background: var(--card2); color:var(--fg); border:1px solid #2a3140; border-radius:10px; padding:12px 14px; font-size:16px;
+      outline: none;
+    }
+    button {
+      background: var(--accent); color:#0b1220; border:none; border-radius:10px; padding:12px 16px; font-size:16px; font-weight:700;
+      cursor:pointer;
+    }
+    button.secondary { background:#2a3140; color:#dbe6f5; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .center { text-align:center; }
+    .mt16{ margin-top:16px; } .mt24{ margin-top:24px;} .mt32{ margin-top:32px;} .mt8{ margin-top:8px;}
+    .hidden { display:none !important; }
+    .bar { height:1px; background:#232a34; margin:18px 0; }
+    /* Trial layout */
+    .trial {
+      position: relative; min-height: 340px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    }
+    .stim-attr { font-size: 28px; font-weight: 800; letter-spacing:.4px; margin-bottom: 10px; text-transform: uppercase; }
+    .stim-brand { font-size: 22px; font-weight: 600; color:#c8d4e6; margin-bottom: 24px; }
+    .options { display:flex; gap:24px; align-items:center; justify-content:center; }
+    .option {
+      background: #1b2130; border:1px solid #2a3140; color:#e8f1ff; padding:14px 18px; border-radius:12px; min-width: 180px;
+      display:flex; align-items:center; gap:10px; font-size:18px; cursor:pointer; user-select:none; transition: transform .05s ease;
+    }
+    .option:hover { transform: translateY(-1px); }
+    .option.fit { border-color: #2c5f3a; }
+    .option.not { border-color: #4c2c2c; }
+    .key {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background:#0f1115; border:1px solid #2a3140; padding:3px 7px; border-radius:6px; font-size:14px; color:#cbd7e8;
+    }
+    /* Fixation cross */
+    .fixation {
+      font-size: 48px; color:#b7c1d1; letter-spacing:2px; text-align:center;
+      height:200px; display:flex; align-items:center; justify-content:center;
+    }
+    /* Countdown ring */
+    .timer-wrap {
+      position:absolute; top:18px; right:18px; width:64px; height:64px;
+    }
+    .timer {
+      position:relative; width:64px; height:64px;
+    }
+    .timer svg { transform: rotate(-90deg); }
+    .timer .time {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:14px; color:#cfe0ff; 
+      font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.4);
+    }
+    .legend { color:#97a3b6; font-size:14px; }
+    .pill {
+      display:inline-flex; align-items:center; gap:8px; background:#1d2431; border:1px solid #2a3140; color:#bfcce4; padding:8px 12px; border-radius:999px;
+    }
+    .footer { color:#8fa0b8; font-size:13px; }
+    .toast {
+      background: #2a3140; color:#e8f1ff; padding:10px 14px; border-radius:10px; border:1px solid #3b4659; display:inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card" id="screen-welcome">
+      <h1>Brand × Attribute — Forced-Choice</h1>
+      <h2>Quick setup</h2>
+      <div class="row mt16">
+        <div class="field">
+          <label for="pname">Your name</label>
+          <input id="pname" type="text" placeholder="Type your full name…" />
+        </div>
+      </div>
+      <p class="mt16 footer">We’ll ask you to respond quickly using <span class="pill"><span class="key">←</span> Fit</span> and 
+        <span class="pill"><span class="key">→</span> Doesn’t fit</span>. This session uses a 5-second time limit per screen.
+      </p>
+      <div class="mt24">
+        <button id="btn-begin">Begin</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="screen-instructions">
+      <h1>Instructions</h1>
+      <p>On each screen you’ll see an <strong>Attribute</strong> and a <strong>Bank</strong>.</p>
+      <p>Decide quickly whether the attribute <em>fits</em> the bank, using:</p>
+      <ul>
+        <li><span class="pill"><span class="key">←</span> Fit</span></li>
+        <li><span class="pill"><span class="key">→</span> Doesn’t fit</span></li>
+      </ul>
+      <p class="legend">You’ll have <strong>5 seconds</strong> per screen. A ring at the top-right counts down. We’ll start with 3 short practice trials.</p>
+      <div class="mt24">
+        <button class="secondary" id="btn-instr-back">Back</button>
+        <button id="btn-instr-next">Start practice</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="screen-practice">
+      <h1>Practice</h1>
+      <div id="practice-stage"></div>
+    </div>
+
+    <div class="card hidden" id="screen-prelude">
+      <h1>All set</h1>
+      <p class="mt8">Let’s begin the actual task. Same rules, just a few more screens.</p>
+      <div class="mt24">
+        <button id="btn-start-main">Begin the task</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="screen-trial">
+      <div id="trial-stage"></div>
+    </div>
+
+    <div class="card hidden" id="screen-finish">
+      <h1>Finished</h1>
+      <p class="mt8">Thanks for your time. Click <strong>Submit</strong> to finalize your session.</p>
+      <div class="mt24">
+        <button id="btn-submit">Submit</button>
+      </div>
+      <div class="mt16">
+        <div id="submit-status" class="toast hidden">Submitting…</div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="screen-done">
+      <h1>All done</h1>
+      <p class="mt8">You may now close this window.</p>
+    </div>
+  </div>
+
+  <script>
+    // --------- CONFIGURE THESE ---------
+    const FRONTEND_CONFIG = {
+      BACKEND_URL: https://script.google.com/macros/s/AKfycbxwRTN6qWWnRnd44z1WJSWz5yzCNfFQBgi695UxM1DelEaFMcekkZKFGTiAXBvh2ZpP/exec, // <-- paste your Apps Script Web App URL here
+      PRACTICE_COUNT: 3,
+      TRIAL_TIMEOUT_MS: 5000,
+      FIXATION_MS: 1000
+    };
+
+    // Define your stimuli here:
+    const BRANDS = [
+      "Standard Bank CIB",
+      "RMB",
+      "Investec",
+      "Nedbank",
+      "ABSA",
+      "Deutsche Bank"
+    ];
+    const ATTRIBUTES = [
+      // Replace/extend these with your actual 11 attributes
+      "Global",
+      "Easy to deal with",
+      "Understands your business needs",
+      "Committed to your success",
+      "Most innovative",
+      "Best investment bank in South Africa",
+      "Uses digital solutions to advance your goals",
+      "Trusted partner",
+      "Responsive",
+      "Thought leadership",
+      "Strong execution"
+    ];
+    // Optional: fixed practice pairs (or leave empty to randomize)
+    const PRACTICE_PAIRS = [
+      { attribute: "Global", brand: "Standard Bank CIB" },
+      { attribute: "Innovative", brand: "Investec" },
+      { attribute: "Responsive", brand: "RMB" }
+    ];
+    // -----------------------------------
+
+    // Small helpers
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const shuffle = (arr) => arr.map(v => [Math.random(), v]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+    const uuid = () => (crypto?.randomUUID?.() || ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
+
+    // State
+    const state = {
+      sessionId: uuid(),
+      participantName: "",
+      startedAt: new Date().toISOString(),
+      practiceIdx: 0,
+      practiceDone: false,
+      trials: [],
+      trialIdx: 0,
+      currentTrial: null,
+      pendingQueue: [], // logs waiting to send
+      practicePass: 0,
+    };
+
+    // Build full cross of brands × attributes
+    function buildTrials() {
+      const full = [];
+      for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
+      state.trials = shuffle(full);
+      state.trialIdx = 0;
+    }
+
+    // Logging
+    async function postJSON(url, data) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(data),
+          keepalive: true // hint browsers to send even during unload
+        });
+        return await res.json().catch(()=> ({}));
+      } catch(e) {
+        return {error: String(e)};
+      }
+    }
+    function envInfo() {
+      return {
+        user_agent: navigator.userAgent,
+        screen: `${window.screen?.width||0}x${window.screen?.height||0}`,
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null
+      };
+    }
+    async function logEvent(event) {
+      const payload = { session_id: state.sessionId, participant: state.participantName, ts: new Date().toISOString(), ...envInfo(), ...event };
+      // queue + try send; keep copy in localStorage in case of offline
+      state.pendingQueue.push(payload);
+      localStorage.setItem(`fc_queue_${state.sessionId}`, JSON.stringify(state.pendingQueue));
+      if (FRONTEND_CONFIG.BACKEND_URL && FRONTEND_CONFIG.BACKEND_URL.startsWith("http")) {
+        const copy = [...state.pendingQueue];
+        const res = await postJSON(FRONTEND_CONFIG.BACKEND_URL, {rows: copy});
+        if (!res.error) {
+          // if server ack, clear queue
+          state.pendingQueue.length = 0;
+          localStorage.removeItem(`fc_queue_${state.sessionId}`);
+        }
+      }
+    }
+    // Flush on unload with sendBeacon as last resort
+    window.addEventListener("beforeunload", () => {
+      try {
+        const url = FRONTEND_CONFIG.BACKEND_URL;
+        if (!url) return;
+        const data = JSON.stringify({rows: state.pendingQueue});
+        navigator.sendBeacon(url, data);
+      } catch {}
+    });
+
+    // Screens
+    const $ = (id)=>document.getElementById(id);
+    const screens = ["welcome","instructions","practice","prelude","trial","finish","done"].reduce((acc,k)=>{
+      acc[k]=$(`screen-${k}`); return acc;
+    },{});
+    function show(name){
+      Object.values(screens).forEach(el=>el.classList.add("hidden"));
+      screens[name].classList.remove("hidden");
+    }
+
+    // Welcome
+    $("btn-begin").addEventListener("click", async ()=>{
+      const name = $("pname").value.trim();
+      if (!name) { alert("Please enter your name."); return; }
+      state.participantName = name;
+      await logEvent({event:"session_start"});
+      show("instructions");
+    });
+    $("btn-instr-back").addEventListener("click", ()=> show("welcome"));
+    $("btn-instr-next").addEventListener("click", async ()=>{
+      state.practiceIdx = 0; state.practicePass = 0;
+      await logEvent({event:"instructions_shown"});
+      runPractice();
+    });
+
+    // Practice
+    function practiceList(){
+      if (PRACTICE_PAIRS && PRACTICE_PAIRS.length >= FRONTEND_CONFIG.PRACTICE_COUNT) {
+        return PRACTICE_PAIRS.slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
+      }
+      // fallback: random 3 pairs
+      const pairs = [];
+      const full = [];
+      for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
+      const rnd = shuffle(full).slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
+      return rnd;
+    }
+    async function runPractice(){
+      show("practice");
+      const practice = practiceList();
+      const stage = $("practice-stage");
+      while (state.practicePass < FRONTEND_CONFIG.PRACTICE_COUNT) {
+        const idx = state.practicePass;
+        const stim = practice[idx];
+        const ok = await runOneTrial(stage, stim, true);
+        if (ok) {
+          state.practicePass += 1;
+        } else {
+          // must answer within time; repeat until ok
+        }
+      }
+      show("prelude");
+    }
+
+    // Main
+    $("btn-start-main").addEventListener("click", async ()=>{
+      buildTrials();
+      await logEvent({event:"main_start", total_trials: state.trials.length});
+      show("trial");
+      runMain();
+    });
+    async function runMain(){
+      const stage = $("trial-stage");
+      while (state.trialIdx < state.trials.length) {
+        const stim = state.trials[state.trialIdx];
+        await runOneTrial(stage, stim, false); // logs every time
+        state.trialIdx += 1;
+      }
+      show("finish");
+    }
+
+    // Trial runner (returns true if responded within time)
+    async function runOneTrial(stageEl, stim, isPractice){
+      // fixation
+      stageEl.innerHTML = `<div class="fixation">+<div class="legend mt16">${isPractice?'Practice':'Trial'} ${isPractice? (state.practicePass+1) : (state.trialIdx+1)} ${isPractice?'of '+FRONTEND_CONFIG.PRACTICE_COUNT:''}</div></div>`;
+      await sleep(FRONTEND_CONFIG.FIXATION_MS);
+
+      // trial UI
+      const trialId = uuid();
+      const start = performance.now();
+      let ended = false, timedOut = false, rt = null, response = null;
+
+      stageEl.innerHTML = `
+        <div class="trial">
+          <div class="timer-wrap">
+            <div class="timer">
+              <svg width="64" height="64">
+                <circle cx="32" cy="32" r="28" stroke="#2a3140" stroke-width="6" fill="none"></circle>
+                <circle id="ring" cx="32" cy="32" r="28" stroke="${isPractice?'#9ac6ff':'#58a6ff'}" stroke-width="6" fill="none" stroke-linecap="round" 
+                        stroke-dasharray="${2*Math.PI*28}" stroke-dashoffset="0"></circle>
+              </svg>
+              <div class="time" id="time-left">5.0</div>
+            </div>
+          </div>
+          <div class="stim-attr">${escapeHtml(stim.attribute)}</div>
+          <div class="stim-brand">${escapeHtml(stim.brand)}</div>
+          <div class="options">
+            <div class="option fit" data-val="fit">← <strong>Fit</strong> <span class="key">Left</span></div>
+            <div class="option not" data-val="not_fit"><strong>Doesn’t fit</strong> → <span class="key">Right</span></div>
+          </div>
+          <div class="legend mt16">Respond quickly. Time is limited.</div>
+        </div>
+      `;
+
+      // Input handlers
+      const decide = (val)=>{
+        if (ended) return;
+        ended = true;
+        response = val;
+        rt = Math.round(performance.now() - start);
+        teardown();
+        void logEvent({
+          event: isPractice ? "practice_trial" : "trial",
+          trial_id: trialId,
+          practice: isPractice,
+          trial_index: isPractice ? state.practicePass : state.trialIdx,
+          attribute: stim.attribute,
+          brand: stim.brand,
+          response: response,
+          rt_ms: rt,
+          timed_out: false
+        });
+        // brief inter-trial interval (except practice loops immediately)
+      };
+
+      function keyHandler(e){
+        if (e.key === "ArrowLeft") { e.preventDefault(); decide("fit"); }
+        if (e.key === "ArrowRight") { e.preventDefault(); decide("not_fit"); }
+      }
+      function clickHandler(e){
+        const t = e.target.closest(".option");
+        if (!t) return;
+        decide(t.dataset.val);
+      }
+      document.addEventListener("keydown", keyHandler);
+      stageEl.addEventListener("click", clickHandler);
+
+      // Countdown ring
+      const ring = stageEl.querySelector("#ring");
+      const timeText = stageEl.querySelector("#time-left");
+      const circumference = 2 * Math.PI * 28;
+      let last = performance.now();
+      let elapsed = 0;
+
+      function frame(ts){
+        if (ended) return;
+        const dt = ts - last; last = ts;
+        elapsed += dt;
+        const remain = Math.max(0, FRONTEND_CONFIG.TRIAL_TIMEOUT_MS - elapsed);
+        timeText.textContent = (remain/1000).toFixed(1);
+        const frac = remain / FRONTEND_CONFIG.TRIAL_TIMEOUT_MS;
+        ring.style.strokeDashoffset = String(circumference * (1 - frac));
+        if (remain <= 0) {
+          ended = true; timedOut = true;
+          teardown();
+          void logEvent({
+            event: isPractice ? "practice_trial" : "trial",
+            trial_id: trialId,
+            practice: isPractice,
+            trial_index: isPractice ? state.practicePass : state.trialIdx,
+            attribute: stim.attribute,
+            brand: stim.brand,
+            response: null,
+            rt_ms: null,
+            timed_out: true
+          });
+          // For practice: show message and repeat same practice index
+          if (isPractice) {
+            stageEl.innerHTML = `<div class="center"><h2>Time’s up</h2><p class="mt8">Please answer within 5 seconds. Let’s try that one again.</p></div>`;
+          }
+          return;
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      function teardown(){
+        document.removeEventListener("keydown", keyHandler);
+        stageEl.removeEventListener("click", clickHandler);
+      }
+
+      // Wait a short ITI if they responded
+      if (!timedOut) {
+        while (!ended) { await sleep(10); }
+        await sleep(250);
+      } else {
+        // if timeout, wait a moment so they can read the message
+        await sleep(900);
+      }
+
+      return !timedOut;
+    }
+
+    // Finish
+    $("btn-submit").addEventListener("click", async ()=>{
+      $("submit-status").classList.remove("hidden");
+      await logEvent({event:"session_submit"});
+      $("submit-status").textContent = "Saved. Thank you!";
+      await sleep(500);
+      show("done");
+    });
+
+    // Escape HTML (for safety)
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    // On load: restore queue (if any)
+    (function init(){
+      const saved = localStorage.getItem(`fc_queue_${state.sessionId}`);
+      if (saved) {
+        try { state.pendingQueue = JSON.parse(saved) || []; } catch {}
+      }
+    })();
+
+  </script>
+</body>
+</html>
