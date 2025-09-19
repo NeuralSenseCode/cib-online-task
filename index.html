@@ -160,333 +160,333 @@
   </div>
 
   <script>
-    // --------- CONFIGURE THESE ---------
-    const FRONTEND_CONFIG = {
-      BACKEND_URL: https://script.google.com/macros/s/AKfycbxwRTN6qWWnRnd44z1WJSWz5yzCNfFQBgi695UxM1DelEaFMcekkZKFGTiAXBvh2ZpP/exec, // <-- paste your Apps Script Web App URL here
-      PRACTICE_COUNT: 3,
-      TRIAL_TIMEOUT_MS: 5000,
-      FIXATION_MS: 1000
+  // --------- CONFIGURE THESE ---------
+  const FRONTEND_CONFIG = {
+    BACKEND_URL: "YOUR_WEB_APP_URL", // <-- paste your Apps Script Web App URL here
+    PRACTICE_COUNT: 3,
+    TRIAL_TIMEOUT_MS: 5000,
+    FIXATION_MS: 1000
+  };
+
+  // Define your stimuli here:
+  const BRANDS = [
+    "Standard Bank CIB",
+    "RMB",
+    "Investec",
+    "Nedbank",
+    "ABSA",
+    "Deutsche Bank"
+  ];
+  const ATTRIBUTES = [
+    "Global",
+    "Easy to deal with",
+    "Understands your business needs",
+    "Committed to your success",
+    "Most innovative",
+    "Best investment bank in South Africa",
+    "Uses digital solutions to advance your goals",
+    "Trusted partner",
+    "Responsive",
+    "Thought leadership",
+    "Strong execution"
+  ];
+  const PRACTICE_PAIRS = [
+    { attribute: "Global",      brand: "Standard Bank CIB" },
+    { attribute: "Innovative",  brand: "Investec" },
+    { attribute: "Responsive",  brand: "RMB" }
+  ];
+  // -----------------------------------
+
+  // Small helpers
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const shuffle = (arr) => arr.map(v => [Math.random(), v]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+  const uuid = () => (crypto?.randomUUID?.() || ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
+
+  // State
+  const state = {
+    sessionId: uuid(),
+    participantName: "",
+    startedAt: new Date().toISOString(),
+    practiceIdx: 0,
+    practiceDone: false,
+    trials: [],
+    trialIdx: 0,
+    currentTrial: null,
+    pendingQueue: [], // logs waiting to send
+    practicePass: 0,
+  };
+
+  // Build full cross of brands × attributes
+  function buildTrials() {
+    const full = [];
+    for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
+    state.trials = shuffle(full);
+    state.trialIdx = 0;
+  }
+
+  // Networking
+  async function postJSON(url, data) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(data),
+        keepalive: true
+      });
+      return await res.json().catch(()=> ({}));
+    } catch(e) {
+      // Swallow errors so UI never stalls
+      return {error: String(e)};
+    }
+  }
+  function envInfo() {
+    return {
+      user_agent: navigator.userAgent,
+      screen: `${window.screen?.width||0}x${window.screen?.height||0}`,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null
     };
-
-    // Define your stimuli here:
-    const BRANDS = [
-      "Standard Bank CIB",
-      "RMB",
-      "Investec",
-      "Nedbank",
-      "ABSA",
-      "Deutsche Bank"
-    ];
-    const ATTRIBUTES = [
-      // Replace/extend these with your actual 11 attributes
-      "Global",
-      "Easy to deal with",
-      "Understands your business needs",
-      "Committed to your success",
-      "Most innovative",
-      "Best investment bank in South Africa",
-      "Uses digital solutions to advance your goals",
-      "Trusted partner",
-      "Responsive",
-      "Thought leadership",
-      "Strong execution"
-    ];
-    // Optional: fixed practice pairs (or leave empty to randomize)
-    const PRACTICE_PAIRS = [
-      { attribute: "Global", brand: "Standard Bank CIB" },
-      { attribute: "Innovative", brand: "Investec" },
-      { attribute: "Responsive", brand: "RMB" }
-    ];
-    // -----------------------------------
-
-    // Small helpers
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const shuffle = (arr) => arr.map(v => [Math.random(), v]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
-    const uuid = () => (crypto?.randomUUID?.() || ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
-
-    // State
-    const state = {
-      sessionId: uuid(),
-      participantName: "",
-      startedAt: new Date().toISOString(),
-      practiceIdx: 0,
-      practiceDone: false,
-      trials: [],
-      trialIdx: 0,
-      currentTrial: null,
-      pendingQueue: [], // logs waiting to send
-      practicePass: 0,
-    };
-
-    // Build full cross of brands × attributes
-    function buildTrials() {
-      const full = [];
-      for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
-      state.trials = shuffle(full);
-      state.trialIdx = 0;
-    }
-
-    // Logging
-    async function postJSON(url, data) {
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(data),
-          keepalive: true // hint browsers to send even during unload
-        });
-        return await res.json().catch(()=> ({}));
-      } catch(e) {
-        return {error: String(e)};
-      }
-    }
-    function envInfo() {
-      return {
-        user_agent: navigator.userAgent,
-        screen: `${window.screen?.width||0}x${window.screen?.height||0}`,
-        tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null
-      };
-    }
-    async function logEvent(event) {
-      const payload = { session_id: state.sessionId, participant: state.participantName, ts: new Date().toISOString(), ...envInfo(), ...event };
-      // queue + try send; keep copy in localStorage in case of offline
+  }
+  async function logEvent(event) {
+    const payload = { session_id: state.sessionId, participant: state.participantName, ts: new Date().toISOString(), ...envInfo(), ...event };
+    // queue + try send; guard storage in case it's blocked
+    try {
       state.pendingQueue.push(payload);
-      localStorage.setItem(`fc_queue_${state.sessionId}`, JSON.stringify(state.pendingQueue));
+      try {
+        localStorage.setItem(`fc_queue_${state.sessionId}`, JSON.stringify(state.pendingQueue));
+      } catch(e) { /* storage may be blocked */ }
       if (FRONTEND_CONFIG.BACKEND_URL && FRONTEND_CONFIG.BACKEND_URL.startsWith("http")) {
         const copy = [...state.pendingQueue];
         const res = await postJSON(FRONTEND_CONFIG.BACKEND_URL, {rows: copy});
         if (!res.error) {
-          // if server ack, clear queue
           state.pendingQueue.length = 0;
-          localStorage.removeItem(`fc_queue_${state.sessionId}`);
+          try { localStorage.removeItem(`fc_queue_${state.sessionId}`); } catch(e) {}
         }
       }
+    } catch(e) {
+      // totally non-fatal for UI
+      console.warn("logEvent failed (non-fatal):", e);
     }
-    // Flush on unload with sendBeacon as last resort
-    window.addEventListener("beforeunload", () => {
-      try {
-        const url = FRONTEND_CONFIG.BACKEND_URL;
-        if (!url) return;
-        const data = JSON.stringify({rows: state.pendingQueue});
-        navigator.sendBeacon(url, data);
-      } catch {}
-    });
+  }
+  // Flush on unload with sendBeacon as last resort
+  window.addEventListener("beforeunload", () => {
+    try {
+      const url = FRONTEND_CONFIG.BACKEND_URL;
+      if (!url) return;
+      const data = JSON.stringify({rows: state.pendingQueue});
+      navigator.sendBeacon(url, data);
+    } catch {}
+  });
 
-    // Screens
-    const $ = (id)=>document.getElementById(id);
-    const screens = ["welcome","instructions","practice","prelude","trial","finish","done"].reduce((acc,k)=>{
-      acc[k]=$(`screen-${k}`); return acc;
-    },{});
-    function show(name){
-      Object.values(screens).forEach(el=>el.classList.add("hidden"));
-      screens[name].classList.remove("hidden");
+  // Screens
+  const $ = (id)=>document.getElementById(id);
+  const screens = ["welcome","instructions","practice","prelude","trial","finish","done"].reduce((acc,k)=>{
+    acc[k]=$(`screen-${k}`); return acc;
+  },{});
+  function show(name){
+    Object.values(screens).forEach(el=>el.classList.add("hidden"));
+    screens[name].classList.remove("hidden");
+  }
+
+  // Welcome
+  $("btn-begin").addEventListener("click", ()=>{
+    // HOTFIX: don’t block if name empty; default to Anonymous.
+    const raw = $("pname").value || "";
+    state.participantName = raw.trim() || "Anonymous";
+    // HOTFIX: fire-and-forget logging so UI advances immediately
+    logEvent({event:"session_start"});
+    show("instructions");
+  });
+  $("btn-instr-back").addEventListener("click", ()=> show("welcome"));
+  $("btn-instr-next").addEventListener("click", async ()=>{
+    state.practiceIdx = 0; state.practicePass = 0;
+    logEvent({event:"instructions_shown"});
+    runPractice();
+  });
+
+  // Practice
+  function practiceList(){
+    if (PRACTICE_PAIRS && PRACTICE_PAIRS.length >= FRONTEND_CONFIG.PRACTICE_COUNT) {
+      return PRACTICE_PAIRS.slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
     }
-
-    // Welcome
-    $("btn-begin").addEventListener("click", async ()=>{
-      const name = $("pname").value.trim();
-      if (!name) { alert("Please enter your name."); return; }
-      state.participantName = name;
-      await logEvent({event:"session_start"});
-      show("instructions");
-    });
-    $("btn-instr-back").addEventListener("click", ()=> show("welcome"));
-    $("btn-instr-next").addEventListener("click", async ()=>{
-      state.practiceIdx = 0; state.practicePass = 0;
-      await logEvent({event:"instructions_shown"});
-      runPractice();
-    });
-
-    // Practice
-    function practiceList(){
-      if (PRACTICE_PAIRS && PRACTICE_PAIRS.length >= FRONTEND_CONFIG.PRACTICE_COUNT) {
-        return PRACTICE_PAIRS.slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
+    const full = [];
+    for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
+    return shuffle(full).slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
+  }
+  async function runPractice(){
+    show("practice");
+    const practice = practiceList();
+    const stage = $("practice-stage");
+    while (state.practicePass < FRONTEND_CONFIG.PRACTICE_COUNT) {
+      const idx = state.practicePass;
+      const stim = practice[idx];
+      const ok = await runOneTrial(stage, stim, true);
+      if (ok) {
+        state.practicePass += 1;
       }
-      // fallback: random 3 pairs
-      const pairs = [];
-      const full = [];
-      for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
-      const rnd = shuffle(full).slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
-      return rnd;
     }
-    async function runPractice(){
-      show("practice");
-      const practice = practiceList();
-      const stage = $("practice-stage");
-      while (state.practicePass < FRONTEND_CONFIG.PRACTICE_COUNT) {
-        const idx = state.practicePass;
-        const stim = practice[idx];
-        const ok = await runOneTrial(stage, stim, true);
-        if (ok) {
-          state.practicePass += 1;
-        } else {
-          // must answer within time; repeat until ok
-        }
-      }
-      show("prelude");
+    show("prelude");
+  }
+
+  // Main
+  $("btn-start-main").addEventListener("click", async ()=>{
+    buildTrials();
+    logEvent({event:"main_start", total_trials: state.trials.length});
+    show("trial");
+    runMain();
+  });
+  async function runMain(){
+    const stage = $("trial-stage");
+    while (state.trialIdx < state.trials.length) {
+      const stim = state.trials[state.trialIdx];
+      await runOneTrial(stage, stim, false); // logs every time
+      state.trialIdx += 1;
     }
+    show("finish");
+  }
 
-    // Main
-    $("btn-start-main").addEventListener("click", async ()=>{
-      buildTrials();
-      await logEvent({event:"main_start", total_trials: state.trials.length});
-      show("trial");
-      runMain();
-    });
-    async function runMain(){
-      const stage = $("trial-stage");
-      while (state.trialIdx < state.trials.length) {
-        const stim = state.trials[state.trialIdx];
-        await runOneTrial(stage, stim, false); // logs every time
-        state.trialIdx += 1;
-      }
-      show("finish");
-    }
+  // Trial runner (returns true if responded within time)
+  async function runOneTrial(stageEl, stim, isPractice){
+    // fixation
+    stageEl.innerHTML = `<div class="fixation">+<div class="legend mt16">${isPractice?'Practice':'Trial'} ${isPractice? (state.practicePass+1) : (state.trialIdx+1)} ${isPractice?'of '+FRONTEND_CONFIG.PRACTICE_COUNT:''}</div></div>`;
+    await sleep(FRONTEND_CONFIG.FIXATION_MS);
 
-    // Trial runner (returns true if responded within time)
-    async function runOneTrial(stageEl, stim, isPractice){
-      // fixation
-      stageEl.innerHTML = `<div class="fixation">+<div class="legend mt16">${isPractice?'Practice':'Trial'} ${isPractice? (state.practicePass+1) : (state.trialIdx+1)} ${isPractice?'of '+FRONTEND_CONFIG.PRACTICE_COUNT:''}</div></div>`;
-      await sleep(FRONTEND_CONFIG.FIXATION_MS);
+    // trial UI
+    const trialId = uuid();
+    const start = performance.now();
+    let ended = false, timedOut = false, rt = null, response = null;
 
-      // trial UI
-      const trialId = uuid();
-      const start = performance.now();
-      let ended = false, timedOut = false, rt = null, response = null;
-
-      stageEl.innerHTML = `
-        <div class="trial">
-          <div class="timer-wrap">
-            <div class="timer">
-              <svg width="64" height="64">
-                <circle cx="32" cy="32" r="28" stroke="#2a3140" stroke-width="6" fill="none"></circle>
-                <circle id="ring" cx="32" cy="32" r="28" stroke="${isPractice?'#9ac6ff':'#58a6ff'}" stroke-width="6" fill="none" stroke-linecap="round" 
-                        stroke-dasharray="${2*Math.PI*28}" stroke-dashoffset="0"></circle>
-              </svg>
-              <div class="time" id="time-left">5.0</div>
-            </div>
+    stageEl.innerHTML = `
+      <div class="trial">
+        <div class="timer-wrap">
+          <div class="timer">
+            <svg width="64" height="64">
+              <circle cx="32" cy="32" r="28" stroke="#2a3140" stroke-width="6" fill="none"></circle>
+              <circle id="ring" cx="32" cy="32" r="28" stroke="${isPractice?'#9ac6ff':'#58a6ff'}" stroke-width="6" fill="none" stroke-linecap="round" 
+                      stroke-dasharray="${2*Math.PI*28}" stroke-dashoffset="0"></circle>
+            </svg>
+            <div class="time" id="time-left">5.0</div>
           </div>
-          <div class="stim-attr">${escapeHtml(stim.attribute)}</div>
-          <div class="stim-brand">${escapeHtml(stim.brand)}</div>
-          <div class="options">
-            <div class="option fit" data-val="fit">← <strong>Fit</strong> <span class="key">Left</span></div>
-            <div class="option not" data-val="not_fit"><strong>Doesn’t fit</strong> → <span class="key">Right</span></div>
-          </div>
-          <div class="legend mt16">Respond quickly. Time is limited.</div>
         </div>
-      `;
+        <div class="stim-attr">${escapeHtml(stim.attribute)}</div>
+        <div class="stim-brand">${escapeHtml(stim.brand)}</div>
+        <div class="options">
+          <div class="option fit" data-val="fit">← <strong>Fit</strong> <span class="key">Left</span></div>
+          <div class="option not" data-val="not_fit"><strong>Doesn’t fit</strong> → <span class="key">Right</span></div>
+        </div>
+        <div class="legend mt16">Respond quickly. Time is limited.</div>
+      </div>
+    `;
 
-      // Input handlers
-      const decide = (val)=>{
-        if (ended) return;
-        ended = true;
-        response = val;
-        rt = Math.round(performance.now() - start);
+    const decide = (val)=>{
+      if (ended) return;
+      ended = true;
+      response = val;
+      rt = Math.round(performance.now() - start);
+      teardown();
+      logEvent({
+        event: isPractice ? "practice_trial" : "trial",
+        trial_id: trialId,
+        practice: isPractice,
+        trial_index: isPractice ? state.practicePass : state.trialIdx,
+        attribute: stim.attribute,
+        brand: stim.brand,
+        response: response,
+        rt_ms: rt,
+        timed_out: false
+      });
+    };
+
+    function keyHandler(e){
+      if (e.key === "ArrowLeft") { e.preventDefault(); decide("fit"); }
+      if (e.key === "ArrowRight") { e.preventDefault(); decide("not_fit"); }
+    }
+    function clickHandler(e){
+      const t = e.target.closest(".option");
+      if (!t) return;
+      decide(t.dataset.val);
+    }
+    document.addEventListener("keydown", keyHandler);
+    stageEl.addEventListener("click", clickHandler);
+
+    // Countdown ring
+    const ring = stageEl.querySelector("#ring");
+    const timeText = stageEl.querySelector("#time-left");
+    const circumference = 2 * Math.PI * 28;
+    let last = performance.now();
+    let elapsed = 0;
+
+    function frame(ts){
+      if (ended) return;
+      const dt = ts - last; last = ts;
+      elapsed += dt;
+      const remain = Math.max(0, FRONTEND_CONFIG.TRIAL_TIMEOUT_MS - elapsed);
+      timeText.textContent = (remain/1000).toFixed(1);
+      const frac = remain / FRONTEND_CONFIG.TRIAL_TIMEOUT_MS;
+      ring.style.strokeDashoffset = String(circumference * (1 - frac));
+      if (remain <= 0) {
+        ended = true; timedOut = true;
         teardown();
-        void logEvent({
+        logEvent({
           event: isPractice ? "practice_trial" : "trial",
           trial_id: trialId,
           practice: isPractice,
           trial_index: isPractice ? state.practicePass : state.trialIdx,
           attribute: stim.attribute,
           brand: stim.brand,
-          response: response,
-          rt_ms: rt,
-          timed_out: false
+          response: null,
+          rt_ms: null,
+          timed_out: true
         });
-        // brief inter-trial interval (except practice loops immediately)
-      };
-
-      function keyHandler(e){
-        if (e.key === "ArrowLeft") { e.preventDefault(); decide("fit"); }
-        if (e.key === "ArrowRight") { e.preventDefault(); decide("not_fit"); }
-      }
-      function clickHandler(e){
-        const t = e.target.closest(".option");
-        if (!t) return;
-        decide(t.dataset.val);
-      }
-      document.addEventListener("keydown", keyHandler);
-      stageEl.addEventListener("click", clickHandler);
-
-      // Countdown ring
-      const ring = stageEl.querySelector("#ring");
-      const timeText = stageEl.querySelector("#time-left");
-      const circumference = 2 * Math.PI * 28;
-      let last = performance.now();
-      let elapsed = 0;
-
-      function frame(ts){
-        if (ended) return;
-        const dt = ts - last; last = ts;
-        elapsed += dt;
-        const remain = Math.max(0, FRONTEND_CONFIG.TRIAL_TIMEOUT_MS - elapsed);
-        timeText.textContent = (remain/1000).toFixed(1);
-        const frac = remain / FRONTEND_CONFIG.TRIAL_TIMEOUT_MS;
-        ring.style.strokeDashoffset = String(circumference * (1 - frac));
-        if (remain <= 0) {
-          ended = true; timedOut = true;
-          teardown();
-          void logEvent({
-            event: isPractice ? "practice_trial" : "trial",
-            trial_id: trialId,
-            practice: isPractice,
-            trial_index: isPractice ? state.practicePass : state.trialIdx,
-            attribute: stim.attribute,
-            brand: stim.brand,
-            response: null,
-            rt_ms: null,
-            timed_out: true
-          });
-          // For practice: show message and repeat same practice index
-          if (isPractice) {
-            stageEl.innerHTML = `<div class="center"><h2>Time’s up</h2><p class="mt8">Please answer within 5 seconds. Let’s try that one again.</p></div>`;
-          }
-          return;
+        if (isPractice) {
+          stageEl.innerHTML = `<div class="center"><h2>Time’s up</h2><p class="mt8">Please answer within 5 seconds. Let’s try that one again.</p></div>`;
         }
-        requestAnimationFrame(frame);
+        return;
       }
       requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
 
-      function teardown(){
-        document.removeEventListener("keydown", keyHandler);
-        stageEl.removeEventListener("click", clickHandler);
-      }
-
-      // Wait a short ITI if they responded
-      if (!timedOut) {
-        while (!ended) { await sleep(10); }
-        await sleep(250);
-      } else {
-        // if timeout, wait a moment so they can read the message
-        await sleep(900);
-      }
-
-      return !timedOut;
+    function teardown(){
+      document.removeEventListener("keydown", keyHandler);
+      stageEl.removeEventListener("click", clickHandler);
     }
 
-    // Finish
-    $("btn-submit").addEventListener("click", async ()=>{
-      $("submit-status").classList.remove("hidden");
-      await logEvent({event:"session_submit"});
-      $("submit-status").textContent = "Saved. Thank you!";
-      await sleep(500);
-      show("done");
-    });
-
-    // Escape HTML (for safety)
-    function escapeHtml(s){
-      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    if (!timedOut) {
+      while (!ended) { await sleep(10); }
+      await sleep(250);
+    } else {
+      await sleep(900);
     }
+    return !timedOut;
+  }
 
-    // On load: restore queue (if any)
-    (function init(){
+  // Finish
+  $("btn-submit").addEventListener("click", async ()=>{
+    const el = document.getElementById("submit-status");
+    if (el) el.classList.remove("hidden");
+    logEvent({event:"session_submit"});
+    if (el) el.textContent = "Saved. Thank you!";
+    await sleep(500);
+    show("done");
+  });
+
+  // Escape HTML (for safety)
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  // HOTFIX: guard localStorage on init
+  (function init(){
+    try {
       const saved = localStorage.getItem(`fc_queue_${state.sessionId}`);
       if (saved) {
         try { state.pendingQueue = JSON.parse(saved) || []; } catch {}
       }
-    })();
+    } catch(e) {
+      // storage unavailable; proceed without it
+    }
+  })();
+</script>
 
-  </script>
 </body>
 </html>
