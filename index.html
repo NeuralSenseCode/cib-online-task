@@ -160,224 +160,200 @@
   </div>
 
   <script>
-  // --------- CONFIGURE THESE ---------
-  const FRONTEND_CONFIG = {
-    BACKEND_URL: "https://script.google.com/macros/s/AKfycbxwRTN6qWWnRnd44z1WJSWz5yzCNfFQBgi695UxM1DelEaFMcekkZKFGTiAXBvh2ZpP/exec", // <-- paste your Apps Script Web App URL here
-    PRACTICE_COUNT: 3,
-    TRIAL_TIMEOUT_MS: 5000,
-    FIXATION_MS: 1000
-  };
+/* ===== COMPAT SCRIPT (ES5) ===== */
 
-  // Define your stimuli here:
-  const BRANDS = [
-    "Standard Bank CIB",
-    "RMB",
-    "Investec",
-    "Nedbank",
-    "ABSA",
-    "Deutsche Bank"
-  ];
-  const ATTRIBUTES = [
-    "Global",
-    "Easy to deal with",
-    "Understands your business needs",
-    "Committed to your success",
-    "Most innovative",
-    "Best investment bank in South Africa",
-    "Uses digital solutions to advance your goals",
-    "Trusted partner",
-    "Responsive",
-    "Thought leadership",
-    "Strong execution"
-  ];
-  const PRACTICE_PAIRS = [
-    { attribute: "Global",      brand: "Standard Bank CIB" },
-    { attribute: "Innovative",  brand: "Investec" },
-    { attribute: "Responsive",  brand: "RMB" }
-  ];
-  // -----------------------------------
+/* ---- CONFIG ---- */
+var FRONTEND_CONFIG = {
+  BACKEND_URL: "https://script.google.com/macros/s/AKfycbxwRTN6qWWnRnd44z1WJSWz5yzCNfFQBgi695UxM1DelEaFMcekkZKFGTiAXBvh2ZpP/exec",
+  PRACTICE_COUNT: 3,
+  TRIAL_TIMEOUT_MS: 5000,
+  FIXATION_MS: 1000
+};
 
-  // Small helpers
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const shuffle = (arr) => arr.map(v => [Math.random(), v]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
-  const uuid = () => (crypto?.randomUUID?.() || ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
+/* ---- STIMULI ---- */
+var BRANDS = [
+  "Standard Bank CIB","RMB","Investec","Nedbank","ABSA","Deutsche Bank"
+];
+var ATTRIBUTES = [
+  "Global","Easy to deal with","Understands your business needs","Committed to your success",
+  "Most innovative","Best investment bank in South Africa","Uses digital solutions to advance your goals",
+  "Trusted partner","Responsive","Thought leadership","Strong execution"
+];
+var PRACTICE_PAIRS = [
+  { attribute: "Global", brand: "Standard Bank CIB" },
+  { attribute: "Innovative", brand: "Investec" },
+  { attribute: "Responsive", brand: "RMB" }
+];
 
-  // State
-  const state = {
-    sessionId: uuid(),
-    participantName: "",
-    startedAt: new Date().toISOString(),
-    practiceIdx: 0,
-    practiceDone: false,
-    trials: [],
-    trialIdx: 0,
-    currentTrial: null,
-    pendingQueue: [], // logs waiting to send
-    practicePass: 0,
-  };
+/* ---- UTILS ---- */
+function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+function shuffle(arr){
+  return arr.map(function(v){ return [Math.random(), v]; })
+            .sort(function(a,b){ return a[0]-b[0]; })
+            .map(function(x){ return x[1]; });
+}
+function uuid(){
+  try { if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID(); } catch(e){}
+  // RFC4122-ish fallback
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
+    var r = Math.random()*16|0, v = c === 'x' ? r : (r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+}
+function envInfo(){
+  var tz = null;
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || null; } catch(e){}
+  var sw = (window.screen && window.screen.width) ? window.screen.width : 0;
+  var sh = (window.screen && window.screen.height) ? window.screen.height : 0;
+  return { user_agent: navigator.userAgent, screen: sw + "x" + sh, tz: tz };
+}
 
-  // Build full cross of brands × attributes
-  function buildTrials() {
-    const full = [];
-    for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
-    state.trials = shuffle(full);
-    state.trialIdx = 0;
-  }
+/* ---- STATE ---- */
+var state = {
+  sessionId: uuid(),
+  participantName: "",
+  startedAt: new Date().toISOString(),
+  practiceIdx: 0,
+  practiceDone: false,
+  trials: [],
+  trialIdx: 0,
+  currentTrial: null,
+  pendingQueue: [],
+  practicePass: 0
+};
 
-  // Networking
-  async function postJSON(url, data) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify(data),
-        keepalive: true
-      });
-      return await res.json().catch(()=> ({}));
-    } catch(e) {
-      // Swallow errors so UI never stalls
-      return {error: String(e)};
-    }
-  }
-  function envInfo() {
-    return {
-      user_agent: navigator.userAgent,
-      screen: `${window.screen?.width||0}x${window.screen?.height||0}`,
-      tz: Intl.DateTimeFormat().resolvedOptions().timeZone || null
-    };
-  }
-  async function logEvent(event) {
-    const payload = { session_id: state.sessionId, participant: state.participantName, ts: new Date().toISOString(), ...envInfo(), ...event };
-    // queue + try send; guard storage in case it's blocked
-    try {
-      state.pendingQueue.push(payload);
-      try {
-        localStorage.setItem(`fc_queue_${state.sessionId}`, JSON.stringify(state.pendingQueue));
-      } catch(e) { /* storage may be blocked */ }
-      if (FRONTEND_CONFIG.BACKEND_URL && FRONTEND_CONFIG.BACKEND_URL.startsWith("http")) {
-        const copy = [...state.pendingQueue];
-        const res = await postJSON(FRONTEND_CONFIG.BACKEND_URL, {rows: copy});
-        if (!res.error) {
+/* ---- NETWORK ---- */
+function postJSON(url, data){
+  return fetch(url, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(data),
+    keepalive: true
+  }).then(function(res){ return res.json().catch(function(){ return {}; }); })
+    .catch(function(){ return {error:"net"}; });
+}
+function logEvent(event){
+  try {
+    var payload = Object.assign({ session_id: state.sessionId, participant: state.participantName, ts: new Date().toISOString() }, envInfo(), event);
+    state.pendingQueue.push(payload);
+    try { localStorage.setItem("fc_queue_" + state.sessionId, JSON.stringify(state.pendingQueue)); } catch(e){}
+    if (FRONTEND_CONFIG.BACKEND_URL && FRONTEND_CONFIG.BACKEND_URL.indexOf("http") === 0){
+      var copy = state.pendingQueue.slice(0);
+      return postJSON(FRONTEND_CONFIG.BACKEND_URL, {rows: copy}).then(function(res){
+        if (!res.error){
           state.pendingQueue.length = 0;
-          try { localStorage.removeItem(`fc_queue_${state.sessionId}`); } catch(e) {}
+          try { localStorage.removeItem("fc_queue_" + state.sessionId); } catch(e){}
         }
-      }
-    } catch(e) {
-      // totally non-fatal for UI
-      console.warn("logEvent failed (non-fatal):", e);
+      });
+    }
+  } catch(e){}
+  return Promise.resolve();
+}
+window.addEventListener("beforeunload", function(){
+  try {
+    var url = FRONTEND_CONFIG.BACKEND_URL;
+    if (!url) return;
+    var data = JSON.stringify({rows: state.pendingQueue});
+    if (navigator.sendBeacon) navigator.sendBeacon(url, data);
+  } catch(e){}
+});
+
+/* ---- DOM HELPERS ---- */
+function $(id){ return document.getElementById(id); }
+var screens = {};
+function show(name){
+  Object.keys(screens).forEach(function(k){ screens[k].classList.add("hidden"); });
+  screens[name].classList.remove("hidden");
+}
+
+/* ---- TRIALS ---- */
+function buildTrials(){
+  var full = [];
+  for (var i=0;i<ATTRIBUTES.length;i++){
+    for (var j=0;j<BRANDS.length;j++){
+      full.push({attribute: ATTRIBUTES[i], brand: BRANDS[j]});
     }
   }
-  // Flush on unload with sendBeacon as last resort
-  window.addEventListener("beforeunload", () => {
-    try {
-      const url = FRONTEND_CONFIG.BACKEND_URL;
-      if (!url) return;
-      const data = JSON.stringify({rows: state.pendingQueue});
-      navigator.sendBeacon(url, data);
-    } catch {}
-  });
+  state.trials = shuffle(full);
+  state.trialIdx = 0;
+}
 
-  // Screens
-  const $ = (id)=>document.getElementById(id);
-  const screens = ["welcome","instructions","practice","prelude","trial","finish","done"].reduce((acc,k)=>{
-    acc[k]=$(`screen-${k}`); return acc;
-  },{});
-  function show(name){
-    Object.values(screens).forEach(el=>el.classList.add("hidden"));
-    screens[name].classList.remove("hidden");
-  }
+function practiceList(){
+  if (PRACTICE_PAIRS && PRACTICE_PAIRS.length >= FRONTEND_CONFIG.PRACTICE_COUNT)
+    return PRACTICE_PAIRS.slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
+  var full = [];
+  for (var i=0;i<ATTRIBUTES.length;i++) for (var j=0;j<BRANDS.length;j++) full.push({attribute:ATTRIBUTES[i], brand:BRANDS[j]});
+  return shuffle(full).slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
+}
 
-  // Welcome
-  $("btn-begin").addEventListener("click", ()=>{
-    // HOTFIX: don’t block if name empty; default to Anonymous.
-    const raw = $("pname").value || "";
-    state.participantName = raw.trim() || "Anonymous";
-    // HOTFIX: fire-and-forget logging so UI advances immediately
-    logEvent({event:"session_start"});
-    show("instructions");
-  });
-  $("btn-instr-back").addEventListener("click", ()=> show("welcome"));
-  $("btn-instr-next").addEventListener("click", async ()=>{
-    state.practiceIdx = 0; state.practicePass = 0;
-    logEvent({event:"instructions_shown"});
-    runPractice();
-  });
+function runPractice(){
+  show("practice");
+  var practice = practiceList();
+  var stage = $("practice-stage");
+  (function loop(){
+    if (state.practicePass >= FRONTEND_CONFIG.PRACTICE_COUNT){ show("prelude"); return; }
+    var stim = practice[state.practicePass];
+    runOneTrial(stage, stim, true).then(function(ok){
+      if (ok) state.practicePass += 1;
+      loop();
+    });
+  })();
+}
 
-  // Practice
-  function practiceList(){
-    if (PRACTICE_PAIRS && PRACTICE_PAIRS.length >= FRONTEND_CONFIG.PRACTICE_COUNT) {
-      return PRACTICE_PAIRS.slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
-    }
-    const full = [];
-    for (const a of ATTRIBUTES) for (const b of BRANDS) full.push({attribute:a, brand:b});
-    return shuffle(full).slice(0, FRONTEND_CONFIG.PRACTICE_COUNT);
-  }
-  async function runPractice(){
-    show("practice");
-    const practice = practiceList();
-    const stage = $("practice-stage");
-    while (state.practicePass < FRONTEND_CONFIG.PRACTICE_COUNT) {
-      const idx = state.practicePass;
-      const stim = practice[idx];
-      const ok = await runOneTrial(stage, stim, true);
-      if (ok) {
-        state.practicePass += 1;
-      }
-    }
-    show("prelude");
-  }
-
-  // Main
-  $("btn-start-main").addEventListener("click", async ()=>{
-    buildTrials();
-    logEvent({event:"main_start", total_trials: state.trials.length});
-    show("trial");
-    runMain();
-  });
-  async function runMain(){
-    const stage = $("trial-stage");
-    while (state.trialIdx < state.trials.length) {
-      const stim = state.trials[state.trialIdx];
-      await runOneTrial(stage, stim, false); // logs every time
+function runMain(){
+  var stage = $("trial-stage");
+  (function loop(){
+    if (state.trialIdx >= state.trials.length){ show("finish"); return; }
+    var stim = state.trials[state.trialIdx];
+    runOneTrial(stage, stim, false).then(function(){
       state.trialIdx += 1;
+      loop();
+    });
+  })();
+}
+
+/* Core trial; returns Promise<boolean> (responded vs timeout) */
+function runOneTrial(stageEl, stim, isPractice){
+  // fixation
+  stageEl.innerHTML =
+    '<div class="fixation">+<div class="legend mt16">' + (isPractice?'Practice':'Trial') + ' ' +
+    (isPractice?(state.practicePass+1):(state.trialIdx+1)) + (isPractice?(' of '+FRONTEND_CONFIG.PRACTICE_COUNT):'') +
+    '</div></div>';
+
+  return sleep(FRONTEND_CONFIG.FIXATION_MS).then(function(){
+    var trialId = uuid();
+    var start = performance.now();
+    var ended = false, timedOut = false, rt = null, response = null;
+
+    stageEl.innerHTML =
+      '<div class="trial">' +
+        '<div class="timer-wrap">' +
+          '<div class="timer">' +
+            '<svg width="64" height="64">' +
+              '<circle cx="32" cy="32" r="28" stroke="#2a3140" stroke-width="6" fill="none"></circle>' +
+              '<circle id="ring" cx="32" cy="32" r="28" stroke="' + (isPractice?'#9ac6ff':'#58a6ff') + '" stroke-width="6" fill="none" stroke-linecap="round" ' +
+                      'stroke-dasharray="' + (2*Math.PI*28) + '" stroke-dashoffset="0"></circle>' +
+            '</svg>' +
+            '<div class="time" id="time-left">5.0</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="stim-attr">' + escapeHtml(stim.attribute) + '</div>' +
+        '<div class="stim-brand">' + escapeHtml(stim.brand) + '</div>' +
+        '<div class="options">' +
+          '<div class="option fit" data-val="fit">← <strong>Fit</strong> <span class="key">Left</span></div>' +
+          '<div class="option not" data-val="not_fit"><strong>Doesn’t fit</strong> → <span class="key">Right</span></div>' +
+        '</div>' +
+        '<div class="legend mt16">Respond quickly. Time is limited.</div>' +
+      '</div>';
+
+    function teardown(){
+      document.removeEventListener("keydown", keyHandler);
+      stageEl.removeEventListener("click", clickHandler);
     }
-    show("finish");
-  }
-
-  // Trial runner (returns true if responded within time)
-  async function runOneTrial(stageEl, stim, isPractice){
-    // fixation
-    stageEl.innerHTML = `<div class="fixation">+<div class="legend mt16">${isPractice?'Practice':'Trial'} ${isPractice? (state.practicePass+1) : (state.trialIdx+1)} ${isPractice?'of '+FRONTEND_CONFIG.PRACTICE_COUNT:''}</div></div>`;
-    await sleep(FRONTEND_CONFIG.FIXATION_MS);
-
-    // trial UI
-    const trialId = uuid();
-    const start = performance.now();
-    let ended = false, timedOut = false, rt = null, response = null;
-
-    stageEl.innerHTML = `
-      <div class="trial">
-        <div class="timer-wrap">
-          <div class="timer">
-            <svg width="64" height="64">
-              <circle cx="32" cy="32" r="28" stroke="#2a3140" stroke-width="6" fill="none"></circle>
-              <circle id="ring" cx="32" cy="32" r="28" stroke="${isPractice?'#9ac6ff':'#58a6ff'}" stroke-width="6" fill="none" stroke-linecap="round" 
-                      stroke-dasharray="${2*Math.PI*28}" stroke-dashoffset="0"></circle>
-            </svg>
-            <div class="time" id="time-left">5.0</div>
-          </div>
-        </div>
-        <div class="stim-attr">${escapeHtml(stim.attribute)}</div>
-        <div class="stim-brand">${escapeHtml(stim.brand)}</div>
-        <div class="options">
-          <div class="option fit" data-val="fit">← <strong>Fit</strong> <span class="key">Left</span></div>
-          <div class="option not" data-val="not_fit"><strong>Doesn’t fit</strong> → <span class="key">Right</span></div>
-        </div>
-        <div class="legend mt16">Respond quickly. Time is limited.</div>
-      </div>
-    `;
-
-    const decide = (val)=>{
+    function decide(val){
       if (ended) return;
       ended = true;
       response = val;
@@ -394,36 +370,36 @@
         rt_ms: rt,
         timed_out: false
       });
-    };
-
+      res(true);
+    }
     function keyHandler(e){
-      if (e.key === "ArrowLeft") { e.preventDefault(); decide("fit"); }
-      if (e.key === "ArrowRight") { e.preventDefault(); decide("not_fit"); }
+      if (e.key === "ArrowLeft"){ e.preventDefault(); decide("fit"); }
+      if (e.key === "ArrowRight"){ e.preventDefault(); decide("not_fit"); }
     }
     function clickHandler(e){
-      const t = e.target.closest(".option");
+      var t = e.target && e.target.closest ? e.target.closest(".option") : null;
       if (!t) return;
-      decide(t.dataset.val);
+      decide(t.getAttribute("data-val"));
     }
     document.addEventListener("keydown", keyHandler);
     stageEl.addEventListener("click", clickHandler);
 
-    // Countdown ring
-    const ring = stageEl.querySelector("#ring");
-    const timeText = stageEl.querySelector("#time-left");
-    const circumference = 2 * Math.PI * 28;
-    let last = performance.now();
-    let elapsed = 0;
+    // countdown
+    var ring = stageEl.querySelector("#ring");
+    var timeText = stageEl.querySelector("#time-left");
+    var circumference = 2 * Math.PI * 28;
+    var last = performance.now();
+    var elapsed = 0;
 
-    function frame(ts){
+    function raf(ts){
       if (ended) return;
-      const dt = ts - last; last = ts;
+      var dt = ts - last; last = ts;
       elapsed += dt;
-      const remain = Math.max(0, FRONTEND_CONFIG.TRIAL_TIMEOUT_MS - elapsed);
+      var remain = Math.max(0, FRONTEND_CONFIG.TRIAL_TIMEOUT_MS - elapsed);
       timeText.textContent = (remain/1000).toFixed(1);
-      const frac = remain / FRONTEND_CONFIG.TRIAL_TIMEOUT_MS;
+      var frac = remain / FRONTEND_CONFIG.TRIAL_TIMEOUT_MS;
       ring.style.strokeDashoffset = String(circumference * (1 - frac));
-      if (remain <= 0) {
+      if (remain <= 0){
         ended = true; timedOut = true;
         teardown();
         logEvent({
@@ -437,56 +413,76 @@
           rt_ms: null,
           timed_out: true
         });
-        if (isPractice) {
-          stageEl.innerHTML = `<div class="center"><h2>Time’s up</h2><p class="mt8">Please answer within 5 seconds. Let’s try that one again.</p></div>`;
+        if (isPractice){
+          stageEl.innerHTML = '<div class="center"><h2>Time’s up</h2><p class="mt8">Please answer within 5 seconds. Let’s try that one again.</p></div>';
         }
+        res(false);
         return;
       }
-      requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-
-    function teardown(){
-      document.removeEventListener("keydown", keyHandler);
-      stageEl.removeEventListener("click", clickHandler);
+      requestAnimationFrame(raf);
     }
 
-    if (!timedOut) {
-      while (!ended) { await sleep(10); }
-      await sleep(250);
-    } else {
-      await sleep(900);
-    }
-    return !timedOut;
-  }
+    // Promise wrapper to resolve on end
+    var res;
+    var p = new Promise(function(resolve){ res = resolve; });
+    requestAnimationFrame(function(ts){ last = ts; requestAnimationFrame(raf); });
+    return p.then(function(ok){
+      if (!timedOut) return sleep(250).then(function(){ return ok; });
+      return sleep(900).then(function(){ return ok; });
+    });
+  });
+}
 
-  // Finish
-  $("btn-submit").addEventListener("click", async ()=>{
-    const el = document.getElementById("submit-status");
+/* ---- INIT / BINDINGS ---- */
+document.addEventListener("DOMContentLoaded", function(){
+  // map screens
+  screens = {
+    welcome: $("screen-welcome"),
+    instructions: $("screen-instructions"),
+    practice: $("screen-practice"),
+    prelude: $("screen-prelude"),
+    trial: $("screen-trial"),
+    finish: $("screen-finish"),
+    done: $("screen-done")
+  };
+
+  $("btn-begin").addEventListener("click", function(){
+    var raw = ($("pname").value || "");
+    state.participantName = raw.trim() || "Anonymous";
+    logEvent({event:"session_start"});
+    show("instructions");
+  });
+
+  $("btn-instr-back").addEventListener("click", function(){ show("welcome"); });
+  $("btn-instr-next").addEventListener("click", function(){
+    state.practiceIdx = 0; state.practicePass = 0;
+    logEvent({event:"instructions_shown"});
+    runPractice();
+  });
+
+  $("btn-start-main").addEventListener("click", function(){
+    buildTrials();
+    logEvent({event:"main_start", total_trials: state.trials.length});
+    show("trial");
+    runMain();
+  });
+
+  $("btn-submit").addEventListener("click", function(){
+    var el = document.getElementById("submit-status");
     if (el) el.classList.remove("hidden");
     logEvent({event:"session_submit"});
     if (el) el.textContent = "Saved. Thank you!";
-    await sleep(500);
-    show("done");
+    setTimeout(function(){ show("done"); }, 500);
   });
 
-  // Escape HTML (for safety)
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  }
-
-  // HOTFIX: guard localStorage on init
-  (function init(){
-    try {
-      const saved = localStorage.getItem(`fc_queue_${state.sessionId}`);
-      if (saved) {
-        try { state.pendingQueue = JSON.parse(saved) || []; } catch {}
-      }
-    } catch(e) {
-      // storage unavailable; proceed without it
-    }
-  })();
+  // restore queue (non-fatal)
+  try {
+    var saved = localStorage.getItem("fc_queue_" + state.sessionId);
+    if (saved) { try { state.pendingQueue = JSON.parse(saved) || []; } catch(e){} }
+  } catch(e){}
+});
 </script>
+
 
 </body>
 </html>
