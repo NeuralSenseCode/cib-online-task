@@ -222,8 +222,9 @@ var state = {
 function postJSON(url, data){
   var fd = new FormData();
   fd.append('rows', JSON.stringify(data.rows || []));
-  return fetch(url, { method: "POST", body: fd, keepalive: true })
-    .then(function(res){ return res.json().catch(function(){ return {}; }); })
+  // no-cors => request is sent; response is opaque, but we don't need it
+  return fetch(url, { method: "POST", mode: "no-cors", body: fd, keepalive: true })
+    .then(function(){ return {ok:true}; })
     .catch(function(){ return {error:"net"}; });
 }
 function logEvent(event){
